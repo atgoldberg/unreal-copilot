@@ -38,6 +38,8 @@ public class UnrealCopilot : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				// Python dependencies for Task 001
+				"PythonScriptPlugin",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

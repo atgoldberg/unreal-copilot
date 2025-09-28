@@ -11,4 +11,12 @@ public:
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+
+	/**
+	 * Executes a Python string and returns the result
+	 * This is a placeholder that will be implemented in Task 001
+	 * @param PythonCode The Python code to execute
+	 * @return The execution result or error message
+	 */
+	static FString ExecutePythonString(const FString& PythonCode);
 };
