@@ -1,0 +1,14 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "u:\\unrealprojects\\unrealcopilotproject\\plugins\\unrealcopilot\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\unrealcopilot\\permoduleinline.gen.cpp",
+        "ProvidedModule": "",
+        "PCH": "u:\\unrealprojects\\unrealcopilotproject\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\unrealed\\sharedpch.unrealed.cpp20.h.pch",
+        "Includes": [
+            "u:\\unrealprojects\\unrealcopilotproject\\plugins\\unrealcopilot\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\unrealcopilot\\definitions.unrealcopilot.h",
+            "c:\\program files\\epic games\\ue_5.6\\engine\\source\\runtime\\core\\public\\hal\\permoduleinline.inl"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}
