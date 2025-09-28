@@ -2,21 +2,39 @@
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
+#include "Engine/Engine.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "UnrealCopilot.generated.h"
 
-class FUnrealCopilotModule : public IModuleInterface
+DECLARE_LOG_CATEGORY_EXTERN(LogUnrealCopilot, Log, All);
+
+class UNREALCOPILOT_API FUnrealCopilotModule : public IModuleInterface
 {
 public:
 
 	/** IModuleInterface implementation */
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+};
 
+/**
+ * UnrealCopilot Blueprint Function Library
+ * Provides utility functions for Python execution and LLM integration
+ */
+UCLASS()
+class UNREALCOPILOT_API UUnrealCopilotBlueprintLibrary : public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+
+public:
 	/**
-	 * Executes a Python string and returns the result
-	 * This is a placeholder that will be implemented in Task 001
-	 * @param PythonCode The Python code to execute
-	 * @return The execution result or error message
+	 * Execute a Python code string within the Unreal Editor environment
+	 * @param PythonCode - The Python code string to execute
+	 * @param OutResult - The output result from Python execution (stdout or error message)
+	 * @return true if execution was successful, false if there was an error
 	 */
-	static FString ExecutePythonString(const FString& PythonCode);
+	UFUNCTION(BlueprintCallable, Category = "UnrealCopilot", CallInEditor)
+	static bool ExecutePythonString(const FString& PythonCode, FString& OutResult);
 };

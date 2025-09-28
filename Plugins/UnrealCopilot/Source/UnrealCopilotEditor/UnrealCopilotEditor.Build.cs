@@ -2,9 +2,9 @@
 
 using UnrealBuildTool;
 
-public class UnrealCopilot : ModuleRules
+public class UnrealCopilotEditor : ModuleRules
 {
-	public UnrealCopilot(ReadOnlyTargetRules Target) : base(Target)
+	public UnrealCopilotEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		
@@ -26,6 +26,7 @@ public class UnrealCopilot : ModuleRules
 			new string[]
 			{
 				"Core",
+				"UnrealCopilot",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -38,7 +39,14 @@ public class UnrealCopilot : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				"EditorStyle",
+				"EditorWidgets",
+				"UnrealEd",
+				"ToolMenus",
+				"EditorSubsystem",
+				"WorkspaceMenuStructure",
 				"PythonScriptPlugin",
+				"Projects",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
@@ -50,17 +58,5 @@ public class UnrealCopilot : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
-
-		// Add automation test support for development builds
-		if (Target.bBuildDeveloperTools)
-		{
-			PrivateDependencyModuleNames.AddRange(
-				new string[]
-				{
-					"AutomationController",
-					"AutomationTest",
-				}
-			);
-		}
 	}
 }
