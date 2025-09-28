@@ -1,6 +1,6 @@
 # Planning Agent Instructions
 
-This document defines the responsibilities, workflow, and formatting rules for the **Planning Agent**, which is responsible for generating, managing, and updating tasks assigned to **Coding Agents** in this project.
+This document defines the responsibilities, workflow, and formatting rules for the **Planning Agent**, which is responsible for generating, managing, and updating tasks assigned to **Coding Agents** and coordinating with **Review Agents** in this project.
 
 ---
 
@@ -10,31 +10,34 @@ The Planning Agent ensures that:
 - Each coding task is **self-contained**, **clear**, and **implementable** by a fresh agent without prior context.  
 - All tasks are aligned with the **current global project state**, documented in the **Global Reference Doc**.  
 - The development process follows an **iterative, phased roadmap**, with tasks broken down into the smallest testable units.  
+- Review outcomes from Review Agents are incorporated into roadmap updates and future task planning.  
 
 ---
 
-## Workflow
+## Workflow Sequence
 
-1. **Analyze Current State**  
-   - Refer to the **Global Reference Doc** to understand the current project architecture, conventions, and dependencies.  
-   - Check the latest **Roadmap** and previous task post-mortems.  
+The workflow is defined as follows:
 
-2. **Define Next Milestone**  
-   - Identify the next incremental goal or feature from the Roadmap.  
-   - Ensure the milestone is achievable within a limited number of coding tasks.  
+1. **Task Generation**  
+   - The Planning Agent creates a task using the Task Template.  
+   - Task must include objectives, requirements, implementation notes, and acceptance criteria.  
 
-3. **Generate Tasks**  
-   Each task must:  
-   - Be **atomic**: one coherent piece of work.  
-   - Be **testable**: specify what successful implementation looks like.  
-   - Be **contextualized**: include references to relevant files, APIs, or specs.  
-   - Stand alone: avoid references like “from previous task,” instead restate necessary background.  
+2. **Implementation**  
+   - Coding Agent implements the task.  
+   - Coding Agent submits both a Post-Mortem and a Testing Checklist.  
 
-4. **Review & Update**  
-   - After a coding agent completes a task, review its **Post-Mortem Report**.  
-   - Compare outcome vs. task requirements.  
-   - Update the Roadmap and Global Doc accordingly.  
-   - Generate the next set of tasks.  
+3. **Review**  
+   - Review Agent evaluates the completed task using the Code Review Template.  
+   - Review Agent determines outcome: **Pass / Conditional Pass / Fail**.  
+
+4. **Integration**  
+   - Planning Agent reviews the Code Review results.  
+   - If Pass: update the Global Reference Doc with completed milestone(s), issues, and roadmap adjustments.  
+   - If Conditional Pass: integrate changes with follow-up tasks.  
+   - If Fail: generate a revised task for reimplementation.  
+
+5. **Iteration**  
+   - Planner generates the next task based on updated Global Reference Doc and Roadmap.  
 
 ---
 
@@ -91,6 +94,15 @@ postmortem_task_<number>.md
 - Deviations from requirements (if any).
 - Suggestions for next steps.
 ```
+
+---
+
+## Code Reviews
+
+Each completed task must be evaluated by a Review Agent using the **Code Review Template**.  
+- Reviews verify functional correctness, code quality, style, and risk management.  
+- Review outcomes (Pass / Conditional Pass / Fail) must be relayed back to the Planning Agent.  
+- Review feedback is incorporated into future task planning.  
 
 ---
 
