@@ -47,6 +47,7 @@ public class UnrealCopilotEditor : ModuleRules
 				"WorkspaceMenuStructure",
 				"PythonScriptPlugin",
 				"Projects",
+				"InputCore",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
