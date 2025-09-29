@@ -31,7 +31,7 @@
 | TC-002 | Integration | 1. Load UE project with plugin<br>2. Check plugin is listed in Plugin Manager<br>3. Verify plugin shows as "Enabled" | Plugin loads successfully, no crashes | Editor log excerpt |
 | TC-003 | Editor | 1. Open Tools menu<br>2. Look for "UnrealCopilot Panel" option<br>3. Click to open panel | Panel opens, UI displays correctly | Screenshot of menu and panel |
 | TC-004 | Editor | 1. Open UnrealCopilot Panel<br>2. Verify Mode toggle is visible<br>3. Toggle between "Ask AI" and "Write Code" modes<br>4. Confirm UI updates appropriately | Mode switching works, UI elements show/hide correctly | Screenshots of both modes |
-| TC-005 | Integration | 1. Access Project Settings<br>2. Navigate to Plugins ? UnrealCopilot Settings<br>3. Verify all settings are present and editable | Settings panel accessible, all configuration options available | Screenshot of settings |
+| TC-005 | Integration | 1. Access Project Settings<br>2. Navigate to Plugins ? UnrealCopilot Settings<br>3. Verify all settings are present and editable<br>4. **Look for "OpenAI API Key" field under "OpenAI Settings" section**<br>5. Test entering a test API key | Settings panel accessible, all configuration options available including **OpenAI API Key field** | Screenshot of settings with API key field visible |
 | TC-006 | Integration | 1. In settings, enter test API key<br>2. Save settings<br>3. Restart editor<br>4. Check settings persistence | API key persists across sessions (encrypted) | Settings before/after restart |
 | TC-007 | Editor | 1. Open panel in "Write Code" mode<br>2. Enter simple Python: `print("Hello UnrealCopilot!")`<br>3. Click Execute or press Ctrl+Enter | Code executes, output shows in results area | Screenshot of execution |
 | TC-008 | Integration | 1. Set valid OpenAI API key in settings<br>2. Switch to "Ask AI" mode<br>3. Enter prompt: "print hello world"<br>4. Click "Generate Code" | Code generation initiated, loading indicator shows | Screenshot of generation process |
@@ -214,19 +214,35 @@ Map each Acceptance Criterion from Task 004 to one or more Test Cases.
 5. **Cross-Platform**: Test on different OS if possible (Windows primary)
 6. **Version Compatibility**: Verify with UE 5.6 specifically
 
----
+## Troubleshooting Common Issues
 
-## Quick Smoke Test Checklist
-For rapid validation after changes:
+### TC-005 API Key Field Not Visible
+**Issue**: OpenAI API Key field missing from settings panel  
+**Cause**: Plugin needs to be recompiled after settings changes  
+**Solution**: 
+1. Close Unreal Editor
+2. Rebuild the project: `Build.bat UnrealCopilotProjectEditor Win64 Development`
+3. Restart Unreal Editor
+4. The API key field should now appear under "OpenAI Settings"
 
-- [ ] Plugin compiles clean
-- [ ] Plugin loads in editor without errors  
-- [ ] UnrealCopilot panel opens from Tools menu
-- [ ] Mode toggle switches between Ask AI and Write Code
-- [ ] Direct Python execution works (print statement)
-- [ ] Settings panel accessible and editable
-- [ ] With API key: Basic prompt generates code
-- [ ] Generated code is editable and executable
-- [ ] No crashes or major errors in any workflow
+### Plugin Not Loading
+**Issue**: UnrealCopilot plugin not showing in Tools menu  
+**Solutions**:
+1. Check Plugins panel: `Edit ? Plugins ? Search "UnrealCopilot"`
+2. Ensure plugin is enabled and editor restarted
+3. Check build completed successfully without errors
 
-This checklist should take ~15 minutes for experienced tester with API key configured.
+### Settings Not Persisting
+**Issue**: API key or other settings reset after restart  
+**Solutions**:
+1. Ensure you click "Save" or the settings auto-save
+2. Check file permissions on project directory
+3. Look for `DefaultGame.ini` in `Config/` folder for saved settings
+
+### Generation Fails Silently
+**Issue**: "Generate Code" button does nothing  
+**Check**:
+1. Valid API key entered in settings
+2. Internet connectivity available
+3. Check Output Log for error messages
+4. Verify current LLM provider is set to OpenAI
