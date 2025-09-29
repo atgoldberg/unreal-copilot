@@ -6,12 +6,14 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SSplitter.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
 #include "Widgets/Images/SThrobber.h"
-#include "EditorStyleSet.h"
+#include "Styling/AppStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/MessageDialog.h"
 #include "HAL/PlatformFilemanager.h"
@@ -27,6 +29,8 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 {
 	// Initialize state
 	CurrentExecutionState = EPythonExecutionState::Idle;
+	CurrentGenerationState = ECodeGenerationState::Idle;
+	CurrentUIMode = EUnrealCopilotUIMode::PromptMode; // Default to Prompt Mode
 	HistoryIndex = -1;
 	LastExecutionTime = 0.0f;
 
@@ -46,13 +50,32 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 		});
 	}
 
+	// Get LLM manager reference
+	LLMManager = UUnrealCopilotLLMManager::GetInstance();
+	if (LLMManager.IsValid())
+	{
+		// Bind to LLM manager delegates using lambda functions
+		GenerationStateChangedHandle = LLMManager->OnGenerationStateChanged.AddLambda([this](ECodeGenerationState NewState)
+		{
+			OnGenerationStateChanged(NewState);
+		});
+		
+		GenerationCompletedHandle = LLMManager->OnCodeGenerationComplete.AddLambda([this](const FCodeGenerationResult& Result)
+		{
+			OnCodeGenerationComplete(Result);
+		});
+	}
+
+	// Build model selection options
+	BuildModelSelectionOptions();
+
 	// Load auto-saved prompt text
 	LoadAutoSavedPromptText();
 
 	// Initialize default output text if prompt is empty
 	if (PromptText.IsEmpty())
 	{
-		PromptText = LOCTEXT("DefaultPrompt", "# Enter your Python code here\n# Example:\nprint('Hello from UnrealCopilot!')\n# Use Ctrl+Enter to execute");
+		PromptText = LOCTEXT("DefaultPromptMode", "Ask the AI to help with Unreal Engine tasks!\n\nExample prompts:\n- Create a material with a scrolling texture\n- Add 10 cubes to the level in a circle\n- List all static meshes in the project\n\nPress Ctrl+Enter to generate code");
 	}
 	
 	OutputText = LOCTEXT("DefaultOutput", "Output will appear here after execution...\nUse Up/Down arrow keys to navigate command history.");
@@ -60,11 +83,11 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 	ChildSlot
 	[
 		SNew(SBorder)
-		.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
+		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 		[
 			SNew(SVerticalBox)
 
-			// Title and Status Bar
+			// Title and Mode Selection
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(8.0f, 8.0f, 8.0f, 4.0f)
@@ -76,9 +99,94 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 				.FillWidth(1.0f)
 				[
 					SNew(STextBlock)
-					.Text(LOCTEXT("Title", "UnrealCopilot - Enhanced Python Execution Panel"))
-					.Font(FEditorStyle::GetFontStyle("PropertyWindow.BoldFont"))
+					.Text(LOCTEXT("Title", "UnrealCopilot - AI-Powered Python Assistant"))
+					.Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
 					.Justification(ETextJustify::Left)
+				]
+
+				// Mode Toggle
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(16.0f, 0.0f, 8.0f, 0.0f)
+				[
+					SNew(SHorizontalBox)
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("ModeLabel", "Mode:"))
+						.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
+					]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(8.0f, 0.0f)
+					.VAlign(VAlign_Center)
+					[
+						SAssignNew(ModeToggleCheckBox, SCheckBox)
+						.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+						.IsChecked(CurrentUIMode == EUnrealCopilotUIMode::PromptMode ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
+						.OnCheckStateChanged(this, &SUnrealCopilotWidget::OnModeChanged)
+						[
+							SNew(STextBlock)
+							.Text(CurrentUIMode == EUnrealCopilotUIMode::PromptMode ? LOCTEXT("PromptMode", "Ask AI") : LOCTEXT("CodeMode", "Write Code"))
+							.Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
+						]
+					]
+				]
+			]
+
+			// Status Bar with Model Selection
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(8.0f, 0.0f, 8.0f, 4.0f)
+			[
+				SNew(SHorizontalBox)
+
+				// Mode Description
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(ModeDescriptionTextBlock, STextBlock)
+					.Text(this, &SUnrealCopilotWidget::GetModeDescriptionText)
+					.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
+					.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))
+				]
+
+				// Model Selection (Prompt Mode only)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(8.0f, 0.0f)
+				[
+					SNew(SHorizontalBox)
+					.Visibility(this, &SUnrealCopilotWidget::GetPromptModeVisibility)
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("ModelLabel", "Model:"))
+						.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
+					]
+
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(4.0f, 0.0f)
+					[
+						SAssignNew(ModelSelectionComboBox, SComboBox<TSharedPtr<FString>>)
+						.OptionsSource(&ModelOptions)
+						.OnGenerateWidget_Lambda([](TSharedPtr<FString> Option) {
+							return SNew(STextBlock).Text(FText::FromString(*Option));
+						})
+						.OnSelectionChanged(this, &SUnrealCopilotWidget::OnModelSelectionChanged)
+						[
+							SAssignNew(CurrentModelTextBlock, STextBlock)
+							.Text(this, &SUnrealCopilotWidget::GetCurrentModelText)
+						]
+					]
 				]
 
 				// Execution Throbber
@@ -97,7 +205,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 					SAssignNew(StatusTextBlock, STextBlock)
 					.Text(this, &SUnrealCopilotWidget::GetStatusText)
 					.ColorAndOpacity(this, &SUnrealCopilotWidget::GetStatusColor)
-					.Font(FEditorStyle::GetFontStyle("PropertyWindow.NormalFont"))
+					.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
 				]
 			]
 
@@ -108,7 +216,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(ExecutionTimeTextBlock, STextBlock)
 				.Text(this, &SUnrealCopilotWidget::GetExecutionTimeText)
-				.Font(FEditorStyle::GetFontStyle("PropertyWindow.NormalFont"))
+				.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
 				.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))
 				.Justification(ETextJustify::Right)
 			]
@@ -138,16 +246,24 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 						.FillWidth(1.0f)
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("PromptLabel", "Python Code:"))
-							.Font(FEditorStyle::GetFontStyle("PropertyWindow.BoldFont"))
+							.Text_Lambda([this]() {
+								return CurrentUIMode == EUnrealCopilotUIMode::PromptMode 
+									? LOCTEXT("PromptLabelAI", "AI Prompt:")
+									: LOCTEXT("PromptLabelCode", "Python Code:");
+							})
+							.Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
 						]
 
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
 						[
 							SNew(STextBlock)
-							.Text(LOCTEXT("ShortcutsInfo", "Ctrl+Enter: Execute | Up/Down: History"))
-							.Font(FEditorStyle::GetFontStyle("PropertyWindow.NormalFont"))
+							.Text_Lambda([this]() {
+								return CurrentUIMode == EUnrealCopilotUIMode::PromptMode 
+									? LOCTEXT("ShortcutsInfoPrompt", "Ctrl+Enter: Generate Code")
+									: LOCTEXT("ShortcutsInfoCode", "Ctrl+Enter: Execute | Up/Down: History");
+							})
+							.Font(FAppStyle::GetFontStyle("PropertyWindow.NormalFont"))
 							.ColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f, 1.0f))
 						]
 					]
@@ -157,7 +273,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 					.FillHeight(1.0f)
 					[
 						SNew(SBorder)
-						.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
+						.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 						[
 							SAssignNew(PromptTextBox, SMultiLineEditableTextBox)
 							.Text(this, &SUnrealCopilotWidget::GetPromptText)
@@ -178,6 +294,48 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 						]
 					]
 
+					// Generated Code Preview (Prompt Mode only)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.MaxHeight(200.0f)
+					.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+					[
+						SNew(SVerticalBox)
+						.Visibility(this, &SUnrealCopilotWidget::GetGeneratedCodePreviewVisibility)
+
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(0.0f, 0.0f, 0.0f, 4.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("GeneratedCodeLabel", "Generated Code Preview:"))
+							.Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
+						]
+
+						+ SVerticalBox::Slot()
+						.FillHeight(1.0f)
+						[
+							SNew(SBorder)
+							.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+							[
+								SAssignNew(GeneratedCodePreviewBox, SMultiLineEditableTextBox)
+								.Font(FCoreStyle::GetDefaultFontStyle("Mono", 9))
+								.BackgroundColor(FLinearColor(0.05f, 0.05f, 0.05f, 1.0f))
+								.ForegroundColor(FLinearColor(0.8f, 1.0f, 0.8f, 1.0f))
+								.AllowMultiLine(true)
+								.IsReadOnly(false) // Allow editing of generated code
+								.HScrollBar(
+									SNew(SScrollBar)
+									.Orientation(Orient_Horizontal)
+								)
+								.VScrollBar(
+									SNew(SScrollBar)
+									.Orientation(Orient_Vertical)
+								)
+							]
+						]
+					]
+
 					// Button row
 					+ SVerticalBox::Slot()
 					.AutoHeight()
@@ -185,15 +343,33 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 					[
 						SNew(SHorizontalBox)
 
+						// Generate Code button (Prompt Mode)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(0.0f, 0.0f, 8.0f, 0.0f)
+						[
+							SAssignNew(GenerateCodeButton, SButton)
+							.Text(LOCTEXT("GenerateCodeButton", "Generate Code"))
+							.OnClicked(this, &SUnrealCopilotWidget::OnGenerateCodeClicked)
+							.ButtonStyle(FAppStyle::Get(), "FlatButton.Primary")
+							.ContentPadding(FMargin(16.0f, 8.0f))
+							.IsEnabled(this, &SUnrealCopilotWidget::IsGenerateCodeButtonEnabled)
+							.Visibility(this, &SUnrealCopilotWidget::GetPromptModeVisibility)
+						]
+
 						// Execute button
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
 						.Padding(0.0f, 0.0f, 8.0f, 0.0f)
 						[
 							SAssignNew(ExecuteButton, SButton)
-							.Text(LOCTEXT("ExecuteButton", "Execute Python Code"))
+							.Text_Lambda([this]() {
+								return CurrentUIMode == EUnrealCopilotUIMode::PromptMode 
+									? LOCTEXT("ExecuteGeneratedButton", "Execute Generated Code")
+									: LOCTEXT("ExecuteButton", "Execute Python Code");
+							})
 							.OnClicked(this, &SUnrealCopilotWidget::OnExecuteClicked)
-							.ButtonStyle(FEditorStyle::Get(), "FlatButton.Success")
+							.ButtonStyle(FAppStyle::Get(), "FlatButton.Success")
 							.ContentPadding(FMargin(16.0f, 8.0f))
 							.IsEnabled(this, &SUnrealCopilotWidget::IsExecuteButtonEnabled)
 						]
@@ -206,7 +382,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 							SAssignNew(CancelButton, SButton)
 							.Text(LOCTEXT("CancelButton", "Cancel"))
 							.OnClicked(this, &SUnrealCopilotWidget::OnCancelExecutionClicked)
-							.ButtonStyle(FEditorStyle::Get(), "FlatButton.Danger")
+							.ButtonStyle(FAppStyle::Get(), "FlatButton.Danger")
 							.ContentPadding(FMargin(16.0f, 8.0f))
 							.Visibility(this, &SUnrealCopilotWidget::GetCancelButtonVisibility)
 						]
@@ -218,7 +394,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 							SAssignNew(ClearOutputButton, SButton)
 							.Text(LOCTEXT("ClearOutputButton", "Clear Output"))
 							.OnClicked(this, &SUnrealCopilotWidget::OnClearOutputClicked)
-							.ButtonStyle(FEditorStyle::Get(), "FlatButton.Default")
+							.ButtonStyle(FAppStyle::Get(), "FlatButton.Default")
 							.ContentPadding(FMargin(16.0f, 8.0f))
 						]
 
@@ -240,7 +416,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 					[
 						SNew(STextBlock)
 						.Text(LOCTEXT("OutputLabel", "Execution Results:"))
-						.Font(FEditorStyle::GetFontStyle("PropertyWindow.BoldFont"))
+						.Font(FAppStyle::GetFontStyle("PropertyWindow.BoldFont"))
 					]
 
 					// Output text box (read-only)
@@ -248,7 +424,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 					.FillHeight(1.0f)
 					[
 						SNew(SBorder)
-						.BorderImage(FEditorStyle::GetBrush("ToolPanel.GroupBorder"))
+						.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 						[
 							SAssignNew(OutputTextBox, SMultiLineEditableTextBox)
 							.Text(this, &SUnrealCopilotWidget::GetOutputText)
@@ -307,6 +483,148 @@ SUnrealCopilotWidget::~SUnrealCopilotWidget()
 			ExecutionManager->OnExecutionCompleted.Remove(ExecutionCompletedHandle);
 		}
 	}
+
+	// Unbind LLM delegates
+	if (LLMManager.IsValid())
+	{
+		if (GenerationStateChangedHandle.IsValid())
+		{
+			LLMManager->OnGenerationStateChanged.Remove(GenerationStateChangedHandle);
+		}
+		if (GenerationCompletedHandle.IsValid())
+		{
+			LLMManager->OnCodeGenerationComplete.Remove(GenerationCompletedHandle);
+		}
+	}
+}
+
+void SUnrealCopilotWidget::OnModeChanged(ECheckBoxState CheckState)
+{
+	EUnrealCopilotUIMode NewMode = (CheckState == ECheckBoxState::Checked) 
+		? EUnrealCopilotUIMode::PromptMode 
+		: EUnrealCopilotUIMode::CodeMode;
+
+	if (NewMode != CurrentUIMode)
+	{
+		CurrentUIMode = NewMode;
+		
+		// Update prompt text based on mode
+		if (CurrentUIMode == EUnrealCopilotUIMode::PromptMode)
+		{
+			PromptText = LOCTEXT("DefaultPromptMode", "Ask the AI to help with Unreal Engine tasks!\n\nExample prompts:\n- Create a material with a scrolling texture\n- Add 10 cubes to the level in a circle\n- List all static meshes in the project\n\nPress Ctrl+Enter to generate code");
+		}
+		else
+		{
+			PromptText = LOCTEXT("DefaultCodeMode", "# Enter your Python code here\n# Example:\nprint('Hello from UnrealCopilot!')\n# Use Ctrl+Enter to execute");
+		}
+
+		// Clear generated code preview when switching modes
+		if (GeneratedCodePreviewBox.IsValid())
+		{
+			GeneratedCodePreviewBox->SetText(FText::GetEmpty());
+		}
+		LastGeneratedCode.Empty();
+	}
+}
+
+void SUnrealCopilotWidget::OnModelSelectionChanged(TSharedPtr<FString> SelectedItem, ESelectInfo::Type SelectInfo)
+{
+	if (SelectedItem.IsValid())
+	{
+		SelectedModel = SelectedItem;
+		
+		// Update settings based on selection
+		UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+		if (*SelectedItem == TEXT("GPT-4"))
+		{
+			Settings->OpenAIModel = EOpenAIModel::GPT4;
+		}
+		else if (*SelectedItem == TEXT("GPT-4 Turbo"))
+		{
+			Settings->OpenAIModel = EOpenAIModel::GPT4Turbo;
+		}
+		else if (*SelectedItem == TEXT("GPT-3.5 Turbo"))
+		{
+			Settings->OpenAIModel = EOpenAIModel::GPT35Turbo;
+		}
+		Settings->SaveConfig();
+	}
+}
+
+void SUnrealCopilotWidget::OnGenerationStateChanged(ECodeGenerationState NewState)
+{
+	CurrentGenerationState = NewState;
+	// UI will automatically update through bound visibility functions
+}
+
+void SUnrealCopilotWidget::OnCodeGenerationComplete(const FCodeGenerationResult& Result)
+{
+	if (Result.bSuccess)
+	{
+		// Display generated code in preview
+		LastGeneratedCode = Result.GeneratedCode;
+		if (GeneratedCodePreviewBox.IsValid())
+		{
+			GeneratedCodePreviewBox->SetText(FText::FromString(LastGeneratedCode));
+		}
+
+		// Update output with generation info
+		SetOutputText(FString::Printf(TEXT("[CODE GENERATED] (%.2fs, %d tokens)\n\nGenerated code is ready for review and execution.\nYou can edit the code in the preview window before executing."), 
+			Result.GenerationTimeSeconds, 
+			Result.TokensUsed));
+
+		// Check if user confirmation is required
+		UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+		if (Settings->bRequireUserConfirmation)
+		{
+			ShowCodeConfirmationDialog(Result.GeneratedCode);
+		}
+	}
+	else
+	{
+		SetOutputText(FString::Printf(TEXT("[GENERATION ERROR] %s\n\nGeneration time: %.2fs"), 
+			*Result.ErrorMessage, 
+			Result.GenerationTimeSeconds));
+		
+		// Clear preview
+		if (GeneratedCodePreviewBox.IsValid())
+		{
+			GeneratedCodePreviewBox->SetText(FText::GetEmpty());
+		}
+		LastGeneratedCode.Empty();
+	}
+}
+
+void SUnrealCopilotWidget::AutoSavePromptText()
+{
+	FString AutoSaveFilePath = FPaths::ProjectSavedDir() / TEXT("UnrealCopilot") / TEXT("AutoSavedPrompt.txt");
+	FString PromptString = PromptText.ToString();
+	
+	// Only save if there's actual content
+	if (!PromptString.IsEmpty() && PromptString != TEXT("# Enter your Python code here\n# Example:\nprint('Hello from UnrealCopilot!')\n# Use Ctrl+Enter to execute"))
+	{
+		FFileHelper::SaveStringToFile(PromptString, *AutoSaveFilePath);
+	}
+}
+
+void SUnrealCopilotWidget::LoadAutoSavedPromptText()
+{
+	FString AutoSaveFilePath = FPaths::ProjectSavedDir() / TEXT("UnrealCopilot") / TEXT("AutoSavedPrompt.txt");
+	FString LoadedText;
+	
+	if (FFileHelper::LoadFileToString(LoadedText, *AutoSaveFilePath) && !LoadedText.IsEmpty())
+	{
+		PromptText = FText::FromString(LoadedText);
+	}
+}
+
+FText SUnrealCopilotWidget::GetExecutionTimeText() const
+{
+	if (LastExecutionTime > 0.0f)
+	{
+		return FText::FromString(FString::Printf(TEXT("Last execution: %.3f seconds"), LastExecutionTime));
+	}
+	return FText::GetEmpty();
 }
 
 FReply SUnrealCopilotWidget::OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent)
@@ -316,8 +634,15 @@ FReply SUnrealCopilotWidget::OnKeyDown(const FGeometry& MyGeometry, const FKeyEv
 	{
 		if (InKeyEvent.GetKey() == EKeys::Enter)
 		{
-			// Ctrl+Enter: Execute code
-			return OnExecuteClicked();
+			// Ctrl+Enter: Execute code or generate code depending on mode
+			if (CurrentUIMode == EUnrealCopilotUIMode::PromptMode)
+			{
+				return OnGenerateCodeClicked();
+			}
+			else
+			{
+				return OnExecuteClicked();
+			}
 		}
 	}
 	else if (InKeyEvent.GetKey() == EKeys::Up)
@@ -344,13 +669,62 @@ FReply SUnrealCopilotWidget::OnExecuteClicked()
 		return FReply::Handled();
 	}
 
-	FString PythonCode = PromptText.ToString();
+	FString PythonCode;
+	
+	if (CurrentUIMode == EUnrealCopilotUIMode::PromptMode)
+	{
+		// In Prompt Mode, execute the generated code from preview
+		if (GeneratedCodePreviewBox.IsValid())
+		{
+			PythonCode = GeneratedCodePreviewBox->GetText().ToString();
+		}
+		else
+		{
+			PythonCode = LastGeneratedCode;
+		}
+
+		if (PythonCode.IsEmpty())
+		{
+			SetOutputText(TEXT("[ERROR] No generated code to execute. Please generate code first."));
+			return FReply::Handled();
+		}
+	}
+	else
+	{
+		// In Code Mode, execute the code from the main text box
+		PythonCode = PromptText.ToString();
+	}
 
 	// Execute using the enhanced execution manager
 	FPythonExecutionResult Result = ExecutionManager->ExecutePythonCode(PythonCode, false);
 
-	// The result will be handled by the OnExecutionCompleted delegate
-	// but we can also handle it immediately for synchronous execution
+	return FReply::Handled();
+}
+
+FReply SUnrealCopilotWidget::OnGenerateCodeClicked()
+{
+	if (!LLMManager.IsValid())
+	{
+		SetOutputText(TEXT("[ERROR] LLM manager not available. Please check plugin configuration."));
+		return FReply::Handled();
+	}
+
+	FString Prompt = PromptText.ToString().TrimStartAndEnd();
+	if (Prompt.IsEmpty())
+	{
+		SetOutputText(TEXT("[ERROR] Please enter a prompt describing what you want to accomplish."));
+		return FReply::Handled();
+	}
+
+	// Create delegate for completion using lambda
+	FOnCodeGenerationComplete CompletionDelegate;
+	CompletionDelegate.BindLambda([this](const FCodeGenerationResult& Result)
+	{
+		OnCodeGenerationComplete(Result);
+	});
+
+	// Process the prompt
+	LLMManager->ProcessNaturalLanguagePrompt(Prompt, CompletionDelegate);
 
 	return FReply::Handled();
 }
@@ -500,6 +874,25 @@ void SUnrealCopilotWidget::UpdateExecutionStateUI()
 
 FText SUnrealCopilotWidget::GetStatusText() const
 {
+	// Prioritize generation state in Prompt Mode
+	if (CurrentUIMode == EUnrealCopilotUIMode::PromptMode && CurrentGenerationState != ECodeGenerationState::Idle)
+	{
+		switch (CurrentGenerationState)
+		{
+		case ECodeGenerationState::Processing:
+			return LOCTEXT("StatusGenerating", "Generating...");
+		case ECodeGenerationState::Validating:
+			return LOCTEXT("StatusValidatingCode", "Validating...");
+		case ECodeGenerationState::Completed:
+			return LOCTEXT("StatusGenerated", "Code Generated");
+		case ECodeGenerationState::Error:
+			return LOCTEXT("StatusGenerationError", "Generation Error");
+		default:
+			break;
+		}
+	}
+
+	// Fall back to execution state
 	switch (CurrentExecutionState)
 	{
 	case EPythonExecutionState::Idle:
@@ -545,11 +938,21 @@ bool SUnrealCopilotWidget::IsExecuteButtonEnabled() const
 		   CurrentExecutionState == EPythonExecutionState::Error;
 }
 
+bool SUnrealCopilotWidget::IsGenerateCodeButtonEnabled() const
+{
+	return CurrentGenerationState == ECodeGenerationState::Idle &&
+		   CurrentExecutionState != EPythonExecutionState::Executing &&
+		   CurrentUIMode == EUnrealCopilotUIMode::PromptMode;
+}
+
 EVisibility SUnrealCopilotWidget::GetThrobberVisibility() const
 {
-	return (CurrentExecutionState == EPythonExecutionState::Validating ||
-			CurrentExecutionState == EPythonExecutionState::Executing) ? 
-			EVisibility::Visible : EVisibility::Collapsed;
+	bool bShowThrobber = (CurrentExecutionState == EPythonExecutionState::Validating ||
+						  CurrentExecutionState == EPythonExecutionState::Executing) ||
+						 (CurrentGenerationState == ECodeGenerationState::Processing ||
+						  CurrentGenerationState == ECodeGenerationState::Validating);
+	
+	return bShowThrobber ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
 EVisibility SUnrealCopilotWidget::GetCancelButtonVisibility() const
@@ -558,36 +961,101 @@ EVisibility SUnrealCopilotWidget::GetCancelButtonVisibility() const
 			EVisibility::Visible : EVisibility::Collapsed;
 }
 
-void SUnrealCopilotWidget::AutoSavePromptText()
+EVisibility SUnrealCopilotWidget::GetPromptModeVisibility() const
 {
-	FString AutoSaveFilePath = FPaths::ProjectSavedDir() / TEXT("UnrealCopilot") / TEXT("AutoSavedPrompt.txt");
-	FString PromptString = PromptText.ToString();
-	
-	// Only save if there's actual content
-	if (!PromptString.IsEmpty() && PromptString != TEXT("# Enter your Python code here\n# Example:\nprint('Hello from UnrealCopilot!')\n# Use Ctrl+Enter to execute"))
+	return CurrentUIMode == EUnrealCopilotUIMode::PromptMode ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SUnrealCopilotWidget::GetCodeModeVisibility() const
+{
+	return CurrentUIMode == EUnrealCopilotUIMode::CodeMode ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SUnrealCopilotWidget::GetGeneratedCodePreviewVisibility() const
+{
+	return (CurrentUIMode == EUnrealCopilotUIMode::PromptMode && !LastGeneratedCode.IsEmpty()) 
+		? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+FText SUnrealCopilotWidget::GetModeDescriptionText() const
+{
+	if (CurrentUIMode == EUnrealCopilotUIMode::PromptMode)
 	{
-		FFileHelper::SaveStringToFile(PromptString, *AutoSaveFilePath);
+		return LOCTEXT("PromptModeDescription", "Describe what you want to accomplish in natural language, and the AI will generate Python code for you.");
+	}
+	else
+	{
+		return LOCTEXT("CodeModeDescription", "Write Python code directly using the Unreal Engine Python API.");
 	}
 }
 
-void SUnrealCopilotWidget::LoadAutoSavedPromptText()
+void SUnrealCopilotWidget::BuildModelSelectionOptions()
 {
-	FString AutoSaveFilePath = FPaths::ProjectSavedDir() / TEXT("UnrealCopilot") / TEXT("AutoSavedPrompt.txt");
-	FString LoadedText;
-	
-	if (FFileHelper::LoadFileToString(LoadedText, *AutoSaveFilePath) && !LoadedText.IsEmpty())
+	ModelOptions.Empty();
+	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-4 Turbo"))));
+	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-4"))));
+	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-3.5 Turbo"))));
+
+	// Set initial selection based on settings
+	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+	switch (Settings->OpenAIModel)
 	{
-		PromptText = FText::FromString(LoadedText);
+	case EOpenAIModel::GPT4:
+		SelectedModel = ModelOptions[1];
+		break;
+	case EOpenAIModel::GPT4Turbo:
+		SelectedModel = ModelOptions[0];
+		break;
+	case EOpenAIModel::GPT35Turbo:
+		SelectedModel = ModelOptions[2];
+		break;
+	default:
+		SelectedModel = ModelOptions[0];
+		break;
 	}
 }
 
-FText SUnrealCopilotWidget::GetExecutionTimeText() const
+FText SUnrealCopilotWidget::GetCurrentModelText() const
 {
-	if (LastExecutionTime > 0.0f)
+	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+	switch (Settings->OpenAIModel)
 	{
-		return FText::FromString(FString::Printf(TEXT("Last execution: %.3f seconds"), LastExecutionTime));
+	case EOpenAIModel::GPT4:
+		return LOCTEXT("GPT4Model", "GPT-4");
+	case EOpenAIModel::GPT4Turbo:
+		return LOCTEXT("GPT4TurboModel", "GPT-4 Turbo");
+	case EOpenAIModel::GPT35Turbo:
+		return LOCTEXT("GPT35TurboModel", "GPT-3.5 Turbo");
+	default:
+		return LOCTEXT("UnknownModel", "Unknown");
 	}
-	return FText::GetEmpty();
+}
+
+void SUnrealCopilotWidget::ShowCodeConfirmationDialog(const FString& GeneratedCode)
+{
+	FText DialogText = FText::FromString(FString::Printf(TEXT("The AI has generated the following code:\n\n%s\n\nDo you want to execute this code?"), 
+		*GeneratedCode.Left(500))); // Limit display length
+
+	EAppReturnType::Type Result = FMessageDialog::Open(
+		EAppMsgType::YesNo,
+		DialogText,
+		LOCTEXT("CodeConfirmationTitle", "Confirm Code Execution")
+	);
+
+	if (Result == EAppReturnType::Yes)
+	{
+		ExecuteGeneratedCode(GeneratedCode);
+	}
+}
+
+void SUnrealCopilotWidget::ExecuteGeneratedCode(const FString& Code)
+{
+	if (ExecutionManager.IsValid())
+	{
+		// Execute the generated code
+		FPythonExecutionResult Result = ExecutionManager->ExecutePythonCode(Code, false);
+		// Result will be handled by the OnExecutionCompleted delegate
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

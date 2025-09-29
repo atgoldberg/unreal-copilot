@@ -40,6 +40,11 @@ public class UnrealCopilot : ModuleRules
 				"SlateCore",
 				"PythonScriptPlugin",
 				"Json",
+				"HTTP",
+				"DeveloperSettings",
+				"EditorSubsystem",
+				"UnrealEd",
+				"EditorScriptingUtilities",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
