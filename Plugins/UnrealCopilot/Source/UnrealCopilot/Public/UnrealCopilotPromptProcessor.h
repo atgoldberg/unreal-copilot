@@ -139,13 +139,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UnrealCopilot")
 	FString GetFormattedConversationHistory() const;
 
-	/**
-	 * Create JSON payload for OpenAI API request
-	 * @param SystemPrompt - The system prompt
-	 * @param UserPrompt - The user's prompt
-	 * @return JSON object ready for API request
-	 */
+	/** Create OpenAI API request payload in JSON format */
 	TSharedPtr<FJsonObject> CreateOpenAIRequestPayload(const FString& SystemPrompt, const FString& UserPrompt);
+
+	/** Create GPT-5 Responses API request payload (different format from Chat Completions) */
+	TSharedPtr<FJsonObject> CreateGPT5ResponsesPayload(const FString& UserPrompt);
 
 public:
 	/** Delegate called when prompt processing is complete */

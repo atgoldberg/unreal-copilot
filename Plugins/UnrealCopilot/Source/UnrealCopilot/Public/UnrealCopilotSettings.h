@@ -25,7 +25,31 @@ enum class EOpenAIModel : uint8
 {
 	GPT4 UMETA(DisplayName = "GPT-4"),
 	GPT4Turbo UMETA(DisplayName = "GPT-4 Turbo"),
+	GPT5 UMETA(DisplayName = "GPT-5"),
 	GPT35Turbo UMETA(DisplayName = "GPT-3.5 Turbo")
+};
+
+/**
+ * Enumeration for GPT-5 reasoning effort levels
+ */
+UENUM(BlueprintType)
+enum class EGPT5ReasoningEffort : uint8
+{
+	Minimal UMETA(DisplayName="Minimal"),
+	Low UMETA(DisplayName="Low"),
+	Medium UMETA(DisplayName="Medium"),
+	High UMETA(DisplayName="High")
+};
+
+/**
+ * Enumeration for GPT-5 output verbosity levels
+ */
+UENUM(BlueprintType)
+enum class EGPT5Verbosity : uint8
+{
+	Low UMETA(DisplayName="Low"),
+	Medium UMETA(DisplayName="Medium"),
+	High UMETA(DisplayName="High")
 };
 
 /**
@@ -57,14 +81,23 @@ public:
 	/** Validate current settings */
 	bool ValidateSettings(FString& OutErrorMessage) const;
 
+#if WITH_EDITOR
+	/** Handle property changes in editor */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 public:
 	/** Currently selected LLM provider */
 	UPROPERTY(Config, EditAnywhere, Category = "LLM Integration", meta = (DisplayName = "LLM Provider"))
 	ELLMProvider CurrentProvider = ELLMProvider::OpenAI;
 
+	/** OpenAI API Key for authentication */
+	UPROPERTY(Config, EditAnywhere, Category = "OpenAI Settings", meta = (DisplayName = "OpenAI API Key", EditCondition = "CurrentProvider == ELLMProvider::OpenAI", PasswordField = true))
+	FString OpenAIAPIKey;
+
 	/** OpenAI model selection */
 	UPROPERTY(Config, EditAnywhere, Category = "OpenAI Settings", meta = (DisplayName = "OpenAI Model", EditCondition = "CurrentProvider == ELLMProvider::OpenAI"))
-	EOpenAIModel OpenAIModel = EOpenAIModel::GPT4Turbo;
+	EOpenAIModel OpenAIModel = EOpenAIModel::GPT5;
 
 	/** Custom OpenAI endpoint URL (leave empty for default) */
 	UPROPERTY(Config, EditAnywhere, Category = "OpenAI Settings", meta = (DisplayName = "Custom Endpoint URL", EditCondition = "CurrentProvider == ELLMProvider::OpenAI"))
@@ -75,12 +108,12 @@ public:
 	int32 MaxTokens = 2000;
 
 	/** Temperature for LLM responses (0.0 = deterministic, 1.0 = creative) */
-	UPROPERTY(Config, EditAnywhere, Category = "LLM Integration", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Response Temperature"))
+	UPROPERTY(Config, EditAnywhere, Category = "LLM Integration", meta = (ClampMin = "0.0", ClampMax = "1.0", DisplayName = "Response Temperature", ToolTip = "Controls response creativity. Note: GPT-5 only supports default temperature (1.0)."))
 	float Temperature = 0.7f;
 
 	/** Request timeout in seconds */
-	UPROPERTY(Config, EditAnywhere, Category = "LLM Integration", meta = (ClampMin = "5.0", ClampMax = "300.0", DisplayName = "Request Timeout (seconds)"))
-	float RequestTimeoutSeconds = 30.0f;
+	UPROPERTY(Config, EditAnywhere, Category = "LLM Integration", meta = (ClampMin = "5.0", ClampMax = "300.0", DisplayName = "Request Timeout (seconds)", ToolTip = "API request timeout. GPT-5 typically requires 120-180 seconds due to longer processing time."))
+	float RequestTimeoutSeconds = 120.0f;
 
 	/** Rate limiting: Max requests per minute */
 	UPROPERTY(Config, EditAnywhere, Category = "Rate Limiting", meta = (ClampMin = "1", ClampMax = "100", DisplayName = "Max Requests Per Minute"))
@@ -105,6 +138,14 @@ public:
 	/** System prompt template for technical art tasks */
 	UPROPERTY(Config, EditAnywhere, Category = "Prompt Engineering", meta = (DisplayName = "System Prompt Template", MultiLine = true))
 	FString SystemPromptTemplate;
+
+	/** GPT-5 reasoning effort (only used when model is GPT-5) */
+	UPROPERTY(Config, EditAnywhere, Category = "OpenAI Settings", meta=(DisplayName="GPT-5 Reasoning Effort", EditCondition="OpenAIModel == EOpenAIModel::GPT5"))
+	EGPT5ReasoningEffort GPT5ReasoningEffort = EGPT5ReasoningEffort::Medium;
+
+	/** GPT-5 output verbosity (only used when model is GPT-5) */
+	UPROPERTY(Config, EditAnywhere, Category = "OpenAI Settings", meta=(DisplayName="GPT-5 Output Verbosity", EditCondition="OpenAIModel == EOpenAIModel::GPT5"))
+	EGPT5Verbosity GPT5Verbosity = EGPT5Verbosity::Medium;
 
 private:
 	/** Encrypted API key storage */

@@ -11,7 +11,7 @@ UnrealCopilot is an AI-powered Python assistant plugin for Unreal Engine that en
 ### Key Features
 
 - **Dual-Mode Operation**: Switch between AI-powered prompt mode and direct Python coding
-- **OpenAI Integration**: Support for GPT-4, GPT-4 Turbo, and GPT-3.5 Turbo models
+- **OpenAI Integration**: Support for GPT-5-Codex, GPT-5, GPT-4, GPT-4 Turbo, and GPT-3.5 Turbo models
 - **Context-Aware Code Generation**: Automatically includes project and level information
 - **Safety Features**: Code validation, user confirmation, and execution sandboxing
 - **Rich UI Experience**: Integrated editor panel with code preview and execution
@@ -51,7 +51,7 @@ UnrealCopilot is an AI-powered Python assistant plugin for Unreal Engine that en
 
 2. **Set Your API Key**
    - Enter your OpenAI API key in the "OpenAI API Key" field
-   - Select your preferred model (GPT-4 Turbo recommended)
+   - Select your preferred model (GPT-5-Codex recommended for optimal code generation)
    - Configure other settings as needed:
      - **Max Tokens**: 2000 (default, adjust based on needs)
      - **Temperature**: 0.7 (balance between creativity and consistency)
@@ -261,7 +261,7 @@ All plugin settings are available in `Project Settings ? Plugins ? UnrealCopilot
 | Setting | Description | Default | Range |
 |---------|-------------|---------|--------|
 | Current Provider | LLM service to use | OpenAI | OpenAI only (currently) |
-| OpenAI Model | Specific model version | GPT-4 Turbo | GPT-4, GPT-4 Turbo, GPT-3.5 Turbo |
+| OpenAI Model | Specific model version | GPT-5-Codex | GPT-5-Codex, GPT-5, GPT-4, GPT-4 Turbo, GPT-3.5 Turbo |
 | Max Tokens | Maximum response length | 2000 | 100-4000 |
 | Temperature | Response creativity | 0.7 | 0.0-1.0 |
 | Request Timeout | API request timeout | 30s | 5-300s |

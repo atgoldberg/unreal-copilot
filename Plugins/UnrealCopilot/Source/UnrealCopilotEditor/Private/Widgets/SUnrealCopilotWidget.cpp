@@ -313,7 +313,7 @@ void SUnrealCopilotWidget::Construct(const FArguments& InArgs)
 						]
 
 						+ SVerticalBox::Slot()
-						.FillHeight(1.0f)
+						.FillHeight(1)
 						[
 							SNew(SBorder)
 							.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
@@ -535,7 +535,11 @@ void SUnrealCopilotWidget::OnModelSelectionChanged(TSharedPtr<FString> SelectedI
 		
 		// Update settings based on selection
 		UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
-		if (*SelectedItem == TEXT("GPT-4"))
+		if (*SelectedItem == TEXT("GPT-5"))
+		{
+			Settings->OpenAIModel = EOpenAIModel::GPT5;
+		}
+		else if (*SelectedItem == TEXT("GPT-4"))
 		{
 			Settings->OpenAIModel = EOpenAIModel::GPT4;
 		}
@@ -992,6 +996,7 @@ FText SUnrealCopilotWidget::GetModeDescriptionText() const
 void SUnrealCopilotWidget::BuildModelSelectionOptions()
 {
 	ModelOptions.Empty();
+	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-5"))));
 	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-4 Turbo"))));
 	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-4"))));
 	ModelOptions.Add(MakeShareable(new FString(TEXT("GPT-3.5 Turbo"))));
@@ -1000,17 +1005,20 @@ void SUnrealCopilotWidget::BuildModelSelectionOptions()
 	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
 	switch (Settings->OpenAIModel)
 	{
-	case EOpenAIModel::GPT4:
-		SelectedModel = ModelOptions[1];
+	case EOpenAIModel::GPT5:
+		SelectedModel = ModelOptions[0];
 		break;
 	case EOpenAIModel::GPT4Turbo:
-		SelectedModel = ModelOptions[0];
+		SelectedModel = ModelOptions[1];
 		break;
-	case EOpenAIModel::GPT35Turbo:
+	case EOpenAIModel::GPT4:
 		SelectedModel = ModelOptions[2];
 		break;
+	case EOpenAIModel::GPT35Turbo:
+		SelectedModel = ModelOptions[3];
+		break;
 	default:
-		SelectedModel = ModelOptions[0];
+		SelectedModel = ModelOptions[0]; // Default to GPT-5
 		break;
 	}
 }
@@ -1020,6 +1028,8 @@ FText SUnrealCopilotWidget::GetCurrentModelText() const
 	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
 	switch (Settings->OpenAIModel)
 	{
+	case EOpenAIModel::GPT5:
+		return LOCTEXT("GPT5Model", "GPT-5");
 	case EOpenAIModel::GPT4:
 		return LOCTEXT("GPT4Model", "GPT-4");
 	case EOpenAIModel::GPT4Turbo:

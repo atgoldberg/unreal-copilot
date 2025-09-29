@@ -241,6 +241,9 @@ private:
 	 */
 	void ParseOpenAIResponse(const FString& ResponseJSON, FCodeGenerationResult& OutResult);
 
+	/** Parse GPT-5 Responses API response (different format than Chat Completions) */
+	void ParseGPT5ResponsesAPI(const FString& ResponseJSON, FCodeGenerationResult& OutResult);
+
 	/**
 	 * Build system prompt for current context
 	 * @return Complete system prompt

@@ -46,13 +46,18 @@
 | TC-017 | Integration | 1. Set invalid API key<br>2. Try to generate code<br>3. Check error handling | Graceful handling of invalid API key, informative error | API error message |
 | TC-018 | Editor | 1. Open multiple UnrealCopilot panels<br>2. Verify they work independently<br>3. Test state isolation | Multiple panels work without interference | Multi-panel screenshot |
 | TC-019 | Integration | 1. Generate code that produces large output<br>2. Verify output display handles large text<br>3. Check scroll functionality | Output area handles large text, scrolling works | Large output example |
-| TC-020 | Integration | 1. Test all three AI models (GPT-4, GPT-4 Turbo, GPT-3.5)<br>2. Switch between models in settings<br>3. Generate code with each | All models work, model switching functions correctly | Model comparison results |
+| TC-020 | Integration | 1. Test all five AI models (GPT-5-Codex, GPT-5, GPT-4, GPT-4 Turbo, GPT-3.5)<br>2. Switch between models in settings<br>3. Generate code with each | All models work, model switching functions correctly | Model comparison results |
+| TC-021 | Integration | 1. Set model to GPT-5 in settings<br>2. Generate code with a simple prompt<br>3. Enable API logging and check logs<br>4. Verify uses /v1/responses endpoint, not /v1/chat/completions<br>5. Confirm no 404 API errors | GPT-5 uses Responses API correctly, no endpoint errors | API success log showing Responses endpoint |
+| TC-022 | Integration | 1. Set model to GPT-5 in settings<br>2. Ensure temperature is set to non-1.0 value (e.g., 0.7)<br>3. Generate code with a prompt<br>4. Verify no temperature parameter errors<br>5. Check that request succeeds without temperature in payload | GPT-5 omits temperature parameter, uses default (1.0), no API errors | API success log without temperature parameter |
+| TC-023 | Integration | 1. Set model to GPT-5 and timeout to 180 seconds<br>2. Enable API logging in settings<br>3. Generate code with a complex prompt<br>4. Monitor logs for timeout values<br>5. Verify request doesn't timeout prematurely | GPT-5 requests use adequate timeout, no premature timeouts at 30s | Timeout logs showing proper values |
+| TC-024 | Integration | 1. Set model to GPT-5-Codex<br>2. Test code generation with technical art prompts<br>3. Compare code quality with regular GPT-5<br>4. Verify Codex produces more focused, cleaner code | GPT-5-Codex generates superior code for technical tasks | Code quality comparison samples |
+| TC-025 | Integration | 1. Set GPT-5 model with custom temperature (0.8)<br>2. Generate code with technical art prompt<br>3. Verify temperature is now applied (unlike Chat Completions)<br>4. Check response format handles "text" field correctly<br>5. Confirm code extraction works | GPT-5 Responses API supports temperature and generates quality code | Generated code sample with temperature effect |
 
 ### Notes
 - Unit = Plugin compilation and basic initialization
 - Integration = API integration, settings, and core functionality  
 - Editor = UI workflow and user experience validation
-- Tests TC-008 through TC-020 require valid OpenAI API key
+- Tests TC-008 through TC-022 require valid OpenAI API key
 - Tests TC-001 through TC-007 can run without API key
 
 ---
@@ -164,7 +169,7 @@ Map each Acceptance Criterion from Task 004 to one or more Test Cases.
 ## Environment-Specific Tests
 
 ### With Valid API Key
-- TC-008 through TC-020 (Full AI functionality)
+- TC-008 through TC-022 (Full AI functionality)
 - Test different prompt types and complexity levels
 - Verify all three OpenAI models work correctly
 - Test rate limiting and error recovery
@@ -239,10 +244,20 @@ Map each Acceptance Criterion from Task 004 to one or more Test Cases.
 2. Check file permissions on project directory
 3. Look for `DefaultGame.ini` in `Config/` folder for saved settings
 
-### Generation Fails Silently
-**Issue**: "Generate Code" button does nothing  
-**Check**:
-1. Valid API key entered in settings
-2. Internet connectivity available
-3. Check Output Log for error messages
-4. Verify current LLM provider is set to OpenAI
+### GPT-5 "This model is only supported in v1/responses" Error  
+**Issue**: ~~HTTP 404 error about GPT-5 not being supported in chat completions~~  
+**Status**: ? **RESOLVED** - Plugin now automatically uses Responses API for GPT-5  
+**Verification**: 
+1. Enable API logging in settings
+2. Check logs show "endpoint: https://api.openai.com/v1/responses" for GPT-5
+3. No more 404 errors should occur
+
+### GPT-5 Requests Timing Out at 30 Seconds  
+**Issue**: GPT-5 requests timeout after 30 seconds despite higher timeout settings  
+**Cause**: GPT-5 has significantly longer processing times than other models  
+**Solutions**:
+1. **Increase timeout**: Set "Request Timeout" to 180+ seconds in settings  
+2. **Enable logging**: Turn on "Enable API Logging" to monitor actual timeout values
+3. **Plugin auto-adjustment**: Latest version automatically uses minimum 120s for GPT-5
+4. **Check logs**: Look for timeout debugging messages in Output Log
+5. **Alternative**: Try GPT-4 Turbo for faster responses if speed is critical

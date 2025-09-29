@@ -51,16 +51,27 @@ UUnrealCopilotSettings* UUnrealCopilotSettings::Get()
 
 FString UUnrealCopilotSettings::GetOpenAIAPIKey() const
 {
-	if (EncryptedAPIKey.IsEmpty())
+	// If we have a value in the public field, use it (new system)
+	if (!OpenAIAPIKey.IsEmpty())
 	{
-		return FString();
+		return OpenAIAPIKey;
 	}
 	
-	return DecryptString(EncryptedAPIKey);
+	// Fall back to encrypted storage (backward compatibility)
+	if (!EncryptedAPIKey.IsEmpty())
+	{
+		return DecryptString(EncryptedAPIKey);
+	}
+	
+	return FString();
 }
 
 void UUnrealCopilotSettings::SetOpenAIAPIKey(const FString& APIKey)
 {
+	// Store in the public field (new system)
+	OpenAIAPIKey = APIKey;
+	
+	// Also store encrypted version for backward compatibility and security
 	if (APIKey.IsEmpty())
 	{
 		EncryptedAPIKey.Empty();
@@ -81,10 +92,12 @@ FString UUnrealCopilotSettings::GetModelNameForAPI() const
 		return TEXT("gpt-4");
 	case EOpenAIModel::GPT4Turbo:
 		return TEXT("gpt-4-turbo-preview");
+	case EOpenAIModel::GPT5:
+		return TEXT("gpt-5");
 	case EOpenAIModel::GPT35Turbo:
 		return TEXT("gpt-3.5-turbo");
 	default:
-		return TEXT("gpt-4-turbo-preview");
+		return TEXT("gpt-5");
 	}
 }
 
@@ -128,55 +141,49 @@ bool UUnrealCopilotSettings::ValidateSettings(FString& OutErrorMessage) const
 	return true;
 }
 
+#if WITH_EDITOR
+void UUnrealCopilotSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	
+	// Handle API key changes
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(UUnrealCopilotSettings, OpenAIAPIKey))
+	{
+		// Update encrypted storage when API key is changed in UI
+		if (OpenAIAPIKey.IsEmpty())
+		{
+			EncryptedAPIKey.Empty();
+		}
+		else
+		{
+			EncryptedAPIKey = EncryptString(OpenAIAPIKey);
+		}
+	}
+}
+#endif
+
 FString UUnrealCopilotSettings::EncryptString(const FString& PlainText) const
 {
-	// Simple XOR encryption (not secure for production use)
+	if (PlainText.IsEmpty())
+	{
+		return FString();
+	}
+
 	FString Result;
-	Result.Reserve(PlainText.Len());
+	const TCHAR* KeyPtr = *EncryptionKey;
+	int32 KeyLength = EncryptionKey.Len();
 	
 	for (int32 i = 0; i < PlainText.Len(); ++i)
 	{
-		TCHAR PlainChar = PlainText[i];
-		TCHAR KeyChar = EncryptionKey[i % EncryptionKey.Len()];
-		TCHAR EncryptedChar = PlainChar ^ KeyChar;
+		TCHAR EncryptedChar = PlainText[i] ^ KeyPtr[i % KeyLength];
 		Result.AppendChar(EncryptedChar);
 	}
 	
-	// Convert to hex for storage
-	FString HexResult;
-	for (TCHAR Char : Result)
-	{
-		HexResult += FString::Printf(TEXT("%04X"), (uint16)Char);
-	}
-	
-	return HexResult;
+	return Result;
 }
 
 FString UUnrealCopilotSettings::DecryptString(const FString& EncryptedText) const
 {
-	// Convert from hex
-	FString BinaryData;
-	for (int32 i = 0; i < EncryptedText.Len(); i += 4)
-	{
-		FString HexPair = EncryptedText.Mid(i, 4);
-		if (HexPair.Len() == 4)
-		{
-			uint16 CharValue = FCString::Strtoi(*HexPair, nullptr, 16);
-			BinaryData.AppendChar((TCHAR)CharValue);
-		}
-	}
-	
-	// Simple XOR decryption
-	FString Result;
-	Result.Reserve(BinaryData.Len());
-	
-	for (int32 i = 0; i < BinaryData.Len(); ++i)
-	{
-		TCHAR EncryptedChar = BinaryData[i];
-		TCHAR KeyChar = EncryptionKey[i % EncryptionKey.Len()];
-		TCHAR PlainChar = EncryptedChar ^ KeyChar;
-		Result.AppendChar(PlainChar);
-	}
-	
-	return Result;
+	// XOR encryption is symmetric, so decryption is the same as encryption
+	return EncryptString(EncryptedText);
 }

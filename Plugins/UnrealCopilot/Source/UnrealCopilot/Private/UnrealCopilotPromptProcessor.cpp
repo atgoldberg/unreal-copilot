@@ -267,11 +267,36 @@ TSharedPtr<FJsonObject> UUnrealCopilotPromptProcessor::CreateOpenAIRequestPayloa
 	TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
 	
 	// Set model
-	JsonObject->SetStringField(TEXT("model"), Settings->GetModelNameForAPI());
+	FString ModelName = Settings->GetModelNameForAPI();
+	JsonObject->SetStringField(TEXT("model"), ModelName);
 	
-	// Set parameters
-	JsonObject->SetNumberField(TEXT("max_tokens"), Settings->MaxTokens);
-	JsonObject->SetNumberField(TEXT("temperature"), Settings->Temperature);
+	// Set parameters - use correct token parameter based on model
+	// Newer models (GPT-5, GPT-4 Turbo, etc.) use max_completion_tokens
+	// Older models (GPT-4, GPT-3.5) use max_tokens
+	bool bUseNewTokenParameter = (Settings->OpenAIModel == EOpenAIModel::GPT5) ||
+								 (Settings->OpenAIModel == EOpenAIModel::GPT4Turbo) ||
+								 ModelName.Contains(TEXT("gpt-4-turbo")) ||
+								 ModelName.Contains(TEXT("gpt-5"));
+	
+	if (bUseNewTokenParameter)
+	{
+		JsonObject->SetNumberField(TEXT("max_completion_tokens"), Settings->MaxTokens);
+	}
+	else
+	{
+		JsonObject->SetNumberField(TEXT("max_tokens"), Settings->MaxTokens);
+	}
+	
+	// Temperature parameter - GPT-5 only supports default value of 1.0
+	// Other models can use custom temperature values
+	bool bSupportsCustomTemperature = (Settings->OpenAIModel != EOpenAIModel::GPT5) &&
+									  !ModelName.Contains(TEXT("gpt-5"));
+	
+	if (bSupportsCustomTemperature)
+	{
+		JsonObject->SetNumberField(TEXT("temperature"), Settings->Temperature);
+	}
+	// For GPT-5, omit temperature parameter to use default (1.0)
 	
 	// Create messages array
 	TArray<TSharedPtr<FJsonValue>> Messages;
@@ -290,6 +315,62 @@ TSharedPtr<FJsonObject> UUnrealCopilotPromptProcessor::CreateOpenAIRequestPayloa
 	
 	JsonObject->SetArrayField(TEXT("messages"), Messages);
 	
+	return JsonObject;
+}
+
+TSharedPtr<FJsonObject> UUnrealCopilotPromptProcessor::CreateGPT5ResponsesPayload(const FString& UserPrompt)
+{
+	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+	
+	TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject);
+	
+	// Set model
+	JsonObject->SetStringField(TEXT("model"), Settings->GetModelNameForAPI());
+	
+	// Build context + user messages (Responses API expects structured input rather than raw string prompt)
+	FPromptContext Context = GatherCurrentContext();
+	FString SystemPrompt = BuildSystemPrompt(Context);
+
+	// Construct input array: [{role: system, content: ...}, {role: user, content: ...}]
+	TArray<TSharedPtr<FJsonValue>> InputArray;
+	{
+		TSharedPtr<FJsonObject> SystemObj = MakeShareable(new FJsonObject);
+		SystemObj->SetStringField(TEXT("role"), TEXT("system"));
+		SystemObj->SetStringField(TEXT("content"), SystemPrompt);
+		InputArray.Add(MakeShareable(new FJsonValueObject(SystemObj)));
+	}
+	{
+		TSharedPtr<FJsonObject> UserObj = MakeShareable(new FJsonObject);
+		UserObj->SetStringField(TEXT("role"), TEXT("user"));
+		UserObj->SetStringField(TEXT("content"), UserPrompt);
+		InputArray.Add(MakeShareable(new FJsonValueObject(UserObj)));
+	}
+	JsonObject->SetArrayField(TEXT("input"), InputArray);
+
+	// GPT-5 controls: max_output_tokens, reasoning.effort, text.verbosity
+	JsonObject->SetNumberField(TEXT("max_output_tokens"), Settings->MaxTokens);
+
+	// Reasoning effort object
+	TSharedPtr<FJsonObject> ReasoningObj = MakeShareable(new FJsonObject);
+	switch (Settings->GPT5ReasoningEffort)
+	{
+	case EGPT5ReasoningEffort::Minimal: ReasoningObj->SetStringField(TEXT("effort"), TEXT("minimal")); break;
+	case EGPT5ReasoningEffort::Low: ReasoningObj->SetStringField(TEXT("effort"), TEXT("low")); break;
+	case EGPT5ReasoningEffort::Medium: ReasoningObj->SetStringField(TEXT("effort"), TEXT("medium")); break;
+	case EGPT5ReasoningEffort::High: ReasoningObj->SetStringField(TEXT("effort"), TEXT("high")); break;
+	}
+	JsonObject->SetObjectField(TEXT("reasoning"), ReasoningObj);
+
+	// Text verbosity object
+	TSharedPtr<FJsonObject> TextObj = MakeShareable(new FJsonObject);
+	switch (Settings->GPT5Verbosity)
+	{
+	case EGPT5Verbosity::Low: TextObj->SetStringField(TEXT("verbosity"), TEXT("low")); break;
+	case EGPT5Verbosity::Medium: TextObj->SetStringField(TEXT("verbosity"), TEXT("medium")); break;
+	case EGPT5Verbosity::High: TextObj->SetStringField(TEXT("verbosity"), TEXT("high")); break;
+	}
+	JsonObject->SetObjectField(TEXT("text"), TextObj);
+
 	return JsonObject;
 }
 

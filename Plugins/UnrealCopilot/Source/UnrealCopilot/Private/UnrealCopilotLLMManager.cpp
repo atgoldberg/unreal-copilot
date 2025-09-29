@@ -258,10 +258,26 @@ void UUnrealCopilotLLMManager::SendOpenAIRequest(const FString& ProcessedPrompt,
 	// Create HTTP request
 	FHttpRequestRef Request = FHttpModule::Get().CreateRequest();
 	
-	// Set URL
-	FString URL = Settings->CustomEndpointURL.IsEmpty() 
-		? TEXT("https://api.openai.com/v1/chat/completions")
-		: Settings->CustomEndpointURL;
+	// Set URL - GPT-5 uses different endpoint (Responses API)
+	FString URL;
+	if (Settings->CustomEndpointURL.IsEmpty())
+	{
+		if (Settings->OpenAIModel == EOpenAIModel::GPT5)
+		{
+			// GPT-5 uses the responses endpoint
+			URL = TEXT("https://api.openai.com/v1/responses");
+		}
+		else
+		{
+			// All other models use chat completions endpoint
+			URL = TEXT("https://api.openai.com/v1/chat/completions");
+		}
+	}
+	else
+	{
+		URL = Settings->CustomEndpointURL;
+	}
+	
 	Request->SetURL(URL);
 	
 	// Set method and headers
@@ -269,10 +285,18 @@ void UUnrealCopilotLLMManager::SendOpenAIRequest(const FString& ProcessedPrompt,
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 	Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *Settings->GetOpenAIAPIKey()));
 	
-	// Create request payload
-	FPromptContext Context = PromptProcessor->GatherCurrentContext();
-	FString SystemPrompt = PromptProcessor->BuildSystemPrompt(Context);
-	TSharedPtr<FJsonObject> PayloadJson = PromptProcessor->CreateOpenAIRequestPayload(SystemPrompt, ProcessedPrompt);
+	// Create request payload - different format for GPT-5 (Responses API)
+	TSharedPtr<FJsonObject> PayloadJson;
+	if (Settings->OpenAIModel == EOpenAIModel::GPT5)
+	{
+		PayloadJson = PromptProcessor->CreateGPT5ResponsesPayload(ProcessedPrompt);
+	}
+	else
+	{
+		FPromptContext Context = PromptProcessor->GatherCurrentContext();
+		FString SystemPrompt = PromptProcessor->BuildSystemPrompt(Context);
+		PayloadJson = PromptProcessor->CreateOpenAIRequestPayload(SystemPrompt, ProcessedPrompt);
+	}
 	
 	// Serialize JSON
 	FString PayloadString;
@@ -281,8 +305,22 @@ void UUnrealCopilotLLMManager::SendOpenAIRequest(const FString& ProcessedPrompt,
 	
 	Request->SetContentAsString(PayloadString);
 	
-	// Set timeout
-	Request->SetTimeout(Settings->RequestTimeoutSeconds);
+	// Set timeout - use longer timeout for GPT-5 models due to increased processing time
+	float TimeoutSeconds = Settings->RequestTimeoutSeconds;
+	if (Settings->OpenAIModel == EOpenAIModel::GPT5)
+	{
+		// GPT-5 typically takes longer, use at least 120 seconds or user setting, whichever is higher
+		TimeoutSeconds = FMath::Max(TimeoutSeconds, 120.0f);
+	}
+	
+	Request->SetTimeout(TimeoutSeconds);
+	
+	// Log timeout setting for debugging
+	if (Settings->bEnableAPILogging)
+	{
+		UE_LOG(LogUnrealCopilotLLM, Log, TEXT("Setting HTTP timeout to %.1f seconds for model: %s (endpoint: %s)"), 
+			TimeoutSeconds, *Settings->GetModelNameForAPI(), *URL);
+	}
 	
 	// Bind response handler
 	Request->OnProcessRequestComplete().BindUObject(this, &UUnrealCopilotLLMManager::OnOpenAIResponse, OnComplete);
@@ -310,6 +348,15 @@ void UUnrealCopilotLLMManager::SendOpenAIRequest(const FString& ProcessedPrompt,
 		}
 		CurrentRequest.Reset();
 	}
+	else
+	{
+		// Log request start time for timeout debugging
+		if (Settings->bEnableAPILogging)
+		{
+			UE_LOG(LogUnrealCopilotLLM, Log, TEXT("HTTP request started at %s with %.1f second timeout"), 
+				*FDateTime::Now().ToString(), TimeoutSeconds);
+		}
+	}
 }
 
 void UUnrealCopilotLLMManager::OnOpenAIResponse(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful, FOnCodeGenerationComplete OnComplete)
@@ -319,13 +366,22 @@ void UUnrealCopilotLLMManager::OnOpenAIResponse(FHttpRequestPtr Request, FHttpRe
 	FCodeGenerationResult Result;
 	Result.GenerationTimeSeconds = FPlatformTime::Seconds() - GenerationStartTime;
 	
+	// Log response timing for debugging
+	UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
+	if (Settings->bEnableAPILogging)
+	{
+		UE_LOG(LogUnrealCopilotLLM, Log, TEXT("HTTP response received at %s after %.2f seconds. Success: %s"), 
+			*FDateTime::Now().ToString(), 
+			Result.GenerationTimeSeconds,
+			bWasSuccessful ? TEXT("true") : TEXT("false"));
+	}
+	
 	if (bWasSuccessful && Response.IsValid())
 	{
 		Result.ResponseCode = Response->GetResponseCode();
 		Result.RawResponse = Response->GetContentAsString();
 		
 		// Log response if enabled
-		UUnrealCopilotSettings* Settings = UUnrealCopilotSettings::Get();
 		if (Settings->bEnableAPILogging)
 		{
 			LogAPIInteraction(TEXT(""), Result.RawResponse, Response->GetResponseCode() == 200);
@@ -333,7 +389,15 @@ void UUnrealCopilotLLMManager::OnOpenAIResponse(FHttpRequestPtr Request, FHttpRe
 		
 		if (Response->GetResponseCode() == 200)
 		{
-			ParseOpenAIResponse(Result.RawResponse, Result);
+			// Parse response based on model type and API endpoint
+			if (Settings->OpenAIModel == EOpenAIModel::GPT5)
+			{
+				ParseGPT5ResponsesAPI(Result.RawResponse, Result);
+			}
+			else
+			{
+				ParseOpenAIResponse(Result.RawResponse, Result);
+			}
 			
 			if (Result.bSuccess)
 			{
@@ -366,8 +430,29 @@ void UUnrealCopilotLLMManager::OnOpenAIResponse(FHttpRequestPtr Request, FHttpRe
 	else
 	{
 		Result.bSuccess = false;
-		Result.ErrorMessage = TEXT("HTTP request failed or timed out");
+		
+		// Enhanced timeout error messaging
+		if (!bWasSuccessful && Result.GenerationTimeSeconds >= (Settings->RequestTimeoutSeconds - 1.0f))
+		{
+			// Likely a timeout
+			Result.ErrorMessage = FString::Printf(TEXT("Request timed out after %.1f seconds. GPT-5 requests may take longer - consider increasing the timeout in settings to 180+ seconds."), 
+				Result.GenerationTimeSeconds);
+		}
+		else
+		{
+			Result.ErrorMessage = TEXT("HTTP request failed or network error occurred");
+		}
+		
 		SetGenerationState(ECodeGenerationState::Error);
+		
+		// Additional timeout logging
+		if (Settings->bEnableAPILogging)
+		{
+			UE_LOG(LogUnrealCopilotLLM, Warning, TEXT("Request failed - Time: %.2fs, Configured Timeout: %.1fs, Model: %s"), 
+				Result.GenerationTimeSeconds, 
+				Settings->RequestTimeoutSeconds,
+				*Settings->GetModelNameForAPI());
+		}
 	}
 	
 	// Execute completion delegate
@@ -434,6 +519,89 @@ void UUnrealCopilotLLMManager::ParseOpenAIResponse(const FString& ResponseJSON, 
 	{
 		OutResult.bSuccess = false;
 		OutResult.ErrorMessage = TEXT("Failed to parse JSON response from OpenAI");
+	}
+}
+
+void UUnrealCopilotLLMManager::ParseGPT5ResponsesAPI(const FString& ResponseJSON, FCodeGenerationResult& OutResult)
+{
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseJSON);
+	
+	if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+	{
+		if (JsonObject->HasField(TEXT("error")))
+		{
+			TSharedPtr<FJsonObject> ErrorObject = JsonObject->GetObjectField(TEXT("error"));
+			OutResult.bSuccess = false;
+			OutResult.ErrorMessage = ErrorObject->GetStringField(TEXT("message"));
+			return;
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* ChoicesArray;
+		if (JsonObject->TryGetArrayField(TEXT("choices"), ChoicesArray) && ChoicesArray->Num() > 0)
+		{
+			TSharedPtr<FJsonObject> FirstChoice = (*ChoicesArray)[0]->AsObject();
+			if (FirstChoice.IsValid())
+			{
+				FString GeneratedText;
+				if (FirstChoice->HasField(TEXT("text")))
+				{
+					GeneratedText = FirstChoice->GetStringField(TEXT("text"));
+				}
+				else if (FirstChoice->HasField(TEXT("message")))
+				{
+					// Fallback if API still returns message object
+					TSharedPtr<FJsonObject> MessageObj = FirstChoice->GetObjectField(TEXT("message"));
+					if (MessageObj.IsValid() && MessageObj->HasField(TEXT("content")))
+					{
+						GeneratedText = MessageObj->GetStringField(TEXT("content"));
+					}
+				}
+
+				OutResult.GeneratedCode = PromptProcessor->ExtractPythonCode(GeneratedText);
+				if (OutResult.GeneratedCode.IsEmpty() && !GeneratedText.IsEmpty())
+				{
+					FString Trimmed = GeneratedText.TrimStartAndEnd();
+					if (Trimmed.Contains(TEXT("unreal.")) || Trimmed.Contains(TEXT("import ")) || Trimmed.Contains(TEXT("def ")))
+					{
+						OutResult.GeneratedCode = Trimmed;
+					}
+				}
+
+				OutResult.bSuccess = !OutResult.GeneratedCode.IsEmpty();
+				if (!OutResult.bSuccess)
+				{
+					OutResult.ErrorMessage = TEXT("No Python code found in GPT-5 Responses API response");
+				}
+			}
+		}
+		else
+		{
+			OutResult.bSuccess = false;
+			OutResult.ErrorMessage = TEXT("No choices found in GPT-5 Responses API response");
+		}
+
+		if (JsonObject->HasField(TEXT("usage")))
+		{
+			TSharedPtr<FJsonObject> UsageObject = JsonObject->GetObjectField(TEXT("usage"));
+			if (UsageObject->HasField(TEXT("total_tokens")))
+			{
+				OutResult.TokensUsed = UsageObject->GetIntegerField(TEXT("total_tokens"));
+			}
+			else if (UsageObject->HasField(TEXT("output_tokens")))
+			{
+				OutResult.TokensUsed = UsageObject->GetIntegerField(TEXT("output_tokens"));
+			}
+			else if (UsageObject->HasField(TEXT("completion_tokens")))
+			{
+				OutResult.TokensUsed = UsageObject->GetIntegerField(TEXT("completion_tokens"));
+			}
+		}
+	}
+	else
+	{
+		OutResult.bSuccess = false;
+		OutResult.ErrorMessage = TEXT("Failed to parse JSON response from GPT-5 Responses API");
 	}
 }
 
